@@ -4,7 +4,7 @@ import signal
 import time
 from datetime import datetime
 from pathlib import Path
-from .config import STORAGE_DIR, MAX_DURATION
+from .config import STORAGE_DIR, load_config
 from .storage import add_recording, update_recording
 
 class ScreenRecorder:
@@ -19,11 +19,16 @@ class ScreenRecorder:
         filename = f"{start_str}.mp4"
         self.current_filepath = str(STORAGE_DIR / filename)
 
+        config = load_config()
+        audio_arg = "default_output"
+        if config.get("record_mic", True):
+            audio_arg += "|default_input"
+
         cmd = [
             "gpu-screen-recorder",
             "-w", "screen",
             "-f", "60",
-            "-a", "default_output|default_input",
+            "-a", audio_arg,
             "-o", self.current_filepath
         ]
         
@@ -42,7 +47,9 @@ class ScreenRecorder:
             print(f"Failed to start recording: {e}")
             return None
 
-    def wait_and_stop(self, timeout=MAX_DURATION):
+    def wait_and_stop(self):
+        config = load_config()
+        timeout = config.get("max_duration_sec", 1800)
         if not self.process:
             return None
             

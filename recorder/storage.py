@@ -2,7 +2,7 @@ import json
 from dataclasses import dataclass, asdict
 from datetime import datetime
 from typing import List, Optional
-from .config import STORAGE_DIR, MAX_RECORDINGS
+from .config import STORAGE_DIR, load_config
 
 @dataclass
 class Recording:
@@ -42,8 +42,9 @@ def add_recording(filepath: str, start_time: str) -> Recording:
     rec = Recording(filepath=filepath, start_time=start_time)
     recordings.insert(0, rec)
     
-    # Enforce max 5
-    while len(recordings) > MAX_RECORDINGS:
+    config = load_config()
+    max_recs = config.get("max_recordings", 5)
+    while len(recordings) > max_recs:
         oldest = recordings.pop()
         old_file = STORAGE_DIR / oldest.filepath.split("/")[-1]
         if old_file.exists():

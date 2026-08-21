@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "recorder-cli"
+version = "0.1.0"
+description = "A CLI tool for screen recording on Wayland"
+authors = [{name = "sevelebeci"}]
+dependencies = []
+requires-python = ">=3.8"
+
+[project.scripts]
+recorder = "recorder.cli:main"

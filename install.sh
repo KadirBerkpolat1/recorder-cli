@@ -31,7 +31,23 @@ ln -sf "$INSTALL_DIR/venv/bin/recorder" "$BIN_DIR/recorder"
 echo "========================================"
 echo "Installation successful!"
 echo "The command 'recorder' is now available."
-echo ""
-echo "Note: If you get a 'command not found' error, make sure"
-echo "$BIN_DIR is added to your system PATH in your shell config (e.g. ~/.bashrc or ~/.zshrc)."
+
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    echo ""
+    echo "WARNING: $BIN_DIR is not in your PATH."
+    echo "Attempting to add it to ~/.bashrc and ~/.zshrc..."
+    
+    for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
+        if [ -f "$shell_rc" ]; then
+            if ! grep -q "export PATH=.*$BIN_DIR" "$shell_rc"; then
+                echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$shell_rc"
+                echo "Added to $shell_rc"
+            fi
+        fi
+    done
+    
+    echo "Please restart your terminal or run:"
+    echo "  export PATH=\"\$PATH:$BIN_DIR\""
+fi
+
 echo "========================================"

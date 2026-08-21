@@ -6,20 +6,28 @@ from .recorder import ScreenRecorder
 from .storage import list_recordings, delete_recording, clean_all
 from . import __version__
 
-def cmd_record(args):
+def cmd_daemon(args):
     ensure_storage_dir()
     recorder = ScreenRecorder()
     filepath = recorder.start()
     if not filepath:
         sys.exit(1)
-        
-    print(f"Recording started: {filepath}")
-    print("Press Ctrl+C to stop, or run 'recorder stop' in another terminal.")
-    print("Recording will automatically stop after 30 minutes.")
-    
-    new_filepath, duration = recorder.wait_and_stop()
-    print(f"\nRecording saved: {new_filepath} ({duration}s)")
+    recorder.wait_and_stop()
 
+def cmd_record(args):
+    ensure_storage_dir()
+    print("Starting recording in the background...")
+    
+    # Launch the daemon process detached from the current terminal
+    subprocess.Popen(
+        ["recorder", "daemon"],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+        start_new_session=True
+    )
+    
+    print("Recording started!")
+    print("Run 'recorder list' to view it, or 'recorder stop' to end it.")
 def cmd_stop(args):
     try:
         subprocess.run(["pkill", "-2", "-f", "gpu-screen-recorder"], check=True)
@@ -87,6 +95,10 @@ def main():
     # clean
     parser_clean = subparsers.add_parser("clean", help="Delete all recordings")
     parser_clean.set_defaults(func=cmd_clean)
+
+    # daemon (hidden)
+    parser_daemon = subparsers.add_parser("daemon")
+    parser_daemon.set_defaults(func=cmd_daemon)
 
     args = parser.parse_args()
     args.func(args)

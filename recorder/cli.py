@@ -1,6 +1,7 @@
 import argparse
 import sys
 import subprocess
+import time
 from .config import ensure_dirs, load_config, save_config, STORAGE_DIR
 from .recorder import ScreenRecorder
 from .storage import list_recordings, delete_recording, clean_all
@@ -34,7 +35,6 @@ def cmd_record(args=None):
         stderr=subprocess.DEVNULL,
         start_new_session=True
     )
-    print("Recording started!")
 
 def cmd_stop(args=None):
     try:
@@ -80,22 +80,32 @@ def cmd_clean(args=None):
 
 def interactive_settings():
     while True:
+        print('\033c', end='')  # Clear screen
         config = load_config()
-        print("\n=== Settings ===")
+        print("=== Settings ===")
         print(f"1. Max Duration: {config.get('max_duration_sec', 1800) // 60} minutes")
         print(f"2. Max Recordings: {config.get('max_recordings', 5)}")
         print(f"3. Record Microphone: {'Yes' if config.get('record_mic', True) else 'No'}")
         print("4. Back")
         
-        choice = input("Select an option: ")
-        
+        try:
+            choice = input("\nSelect an option: ")
+        except KeyboardInterrupt:
+            return
+            
         if choice == '1':
-            mins = input("Enter new max duration in minutes: ")
+            try:
+                mins = input("Enter new max duration in minutes: ")
+            except KeyboardInterrupt:
+                continue
             if mins.isdigit():
                 config['max_duration_sec'] = int(mins) * 60
                 save_config(config)
         elif choice == '2':
-            recs = input("Enter new max recordings limit: ")
+            try:
+                recs = input("Enter new max recordings limit: ")
+            except KeyboardInterrupt:
+                continue
             if recs.isdigit():
                 config['max_recordings'] = int(recs)
                 save_config(config)
@@ -107,16 +117,24 @@ def interactive_settings():
 
 def interactive_videos():
     while True:
-        print("\n=== Videos ===")
+        print('\033c', end='')  # Clear screen
+        print("=== Videos ===")
         recs = cmd_list()
         if not recs:
-            input("Press Enter to return...")
+            try:
+                input("\nPress Enter to return...")
+            except KeyboardInterrupt:
+                pass
             break
             
         print("\nEnter a number to play the video, or 'd <number>' to delete (e.g., 'd 1').")
         print("Type 'q' to go back.")
-        choice = input("Select: ").strip().lower()
         
+        try:
+            choice = input("\nSelect: ").strip().lower()
+        except KeyboardInterrupt:
+            return
+            
         if choice == 'q':
             break
         elif choice.startswith('d '):
@@ -126,32 +144,41 @@ def interactive_videos():
                 if 1 <= idx <= len(recs):
                     delete_recording(idx - 1)
                     print("Deleted.")
+                    time.sleep(0.5)
         elif choice.isdigit():
             idx = int(choice)
             if 1 <= idx <= len(recs):
                 filepath = STORAGE_DIR / recs[idx - 1].get_display_name()
                 subprocess.Popen(["xdg-open", str(filepath)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print("Playing video...")
+                time.sleep(0.5)
 
 def interactive_menu():
     while True:
+        print('\033c', end='')  # Clear screen
         is_active = is_recording_active()
-        status = "🔴 Not Recording" if not is_active else "🟢 RECORDING"
+        status = "🟢 RECORDING" if is_active else "🔴 Not Recording"
         
-        print("\n=== Recorder CLI ===")
+        print("=== Recorder CLI ===")
         print(f"Status: {status}")
-        print("1. Start Recording" if not is_active else "1. Stop Recording")
+        print("1. Stop Recording" if is_active else "1. Start Recording")
         print("2. Manage Videos")
         print("3. Settings")
         print("4. Exit")
         
-        choice = input("Select an option: ")
-        
+        try:
+            choice = input("\nSelect an option: ")
+        except KeyboardInterrupt:
+            print("\nGoodbye!")
+            break
+            
         if choice == '1':
             if is_active:
                 cmd_stop()
+                time.sleep(0.5)  # Wait for process to stop
             else:
                 cmd_record()
+                time.sleep(0.5)  # Wait for process to start
         elif choice == '2':
             interactive_videos()
         elif choice == '3':

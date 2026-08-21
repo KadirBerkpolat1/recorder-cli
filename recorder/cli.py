@@ -149,7 +149,11 @@ def interactive_videos():
             idx = int(choice)
             if 1 <= idx <= len(recs):
                 filepath = STORAGE_DIR / recs[idx - 1].get_display_name()
-                subprocess.Popen(["xdg-open", str(filepath)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                try:
+                    subprocess.run(["which", "mpv"], stdout=subprocess.DEVNULL, check=True)
+                    subprocess.Popen(["mpv", str(filepath)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                except subprocess.CalledProcessError:
+                    subprocess.Popen(["xdg-open", str(filepath)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
                 print("Playing video...")
                 time.sleep(0.5)
 

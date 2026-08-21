@@ -43,16 +43,22 @@ class ScreenRecorder:
         except FileNotFoundError:
             print("Error: gpu-screen-recorder is not installed. Please install it first.")
             return None
-        except Exception as e:
-            print(f"Failed to start recording: {e}")
-            return None
-
     def wait_and_stop(self):
         config = load_config()
         timeout = config.get("max_duration_sec", 1800)
         if not self.process:
             return None
             
+        # Handle system shutdown (SIGTERM)
+        def sigterm_handler(signum, frame):
+            self.stop()
+            self._finalize()
+            sys.exit(0)
+            
+        # We must import sys if we haven't
+        import sys
+        original_sigterm = signal.signal(signal.SIGTERM, sigterm_handler)
+
         try:
             self.process.wait(timeout=timeout)
         except subprocess.TimeoutExpired:
@@ -60,6 +66,9 @@ class ScreenRecorder:
         except KeyboardInterrupt:
             self.stop()
             
+        # Restore original handler
+        signal.signal(signal.SIGTERM, original_sigterm)
+        
         return self._finalize()
 
     def stop(self):

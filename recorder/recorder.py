@@ -1,10 +1,11 @@
 import subprocess
 import os
 import signal
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
-from .config import STORAGE_DIR, load_config
+from .config import STORAGE_DIR, ensure_dirs, load_config
 from .storage import add_recording, update_recording
 
 class ScreenRecorder:
@@ -14,6 +15,7 @@ class ScreenRecorder:
         self.start_time_dt = None
 
     def start(self):
+        ensure_dirs()
         self.start_time_dt = datetime.now()
         start_str = self.start_time_dt.strftime("%Y-%m-%d_%H-%M-%S")
         filename = f"{start_str}.mp4"
@@ -43,43 +45,23 @@ class ScreenRecorder:
         except FileNotFoundError:
             print("Error: gpu-screen-recorder is not installed. Please install it first.")
             return None
-    def wait_and_stop(self):
-        config = load_config()
-        timeout = config.get("max_duration_sec", 1800)
-        if not self.process:
-            return None
-            
-        # Handle system shutdown (SIGTERM)
-        def sigterm_handler(signum, frame):
-            self.stop()
-            self._finalize()
-            sys.exit(0)
-            
-        # We must import sys if we haven't
-        import sys
-        original_sigterm = signal.signal(signal.SIGTERM, sigterm_handler)
-
-        try:
-            self.process.wait(timeout=timeout)
-        except subprocess.TimeoutExpired:
-            self.stop()
-        except KeyboardInterrupt:
-            self.stop()
-            
-        # Restore original handler
-        signal.signal(signal.SIGTERM, original_sigterm)
-        
-        return self._finalize()
 
     def stop(self):
+        """Send SIGINT to gpu-screen-recorder so it cleanly closes the MP4 container"""
         if self.process and self.process.poll() is None:
-            self.process.send_signal(signal.SIGINT)
             try:
-                self.process.wait(timeout=5)
+                self.process.send_signal(signal.SIGINT)
+                self.process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 self.process.kill()
+            except Exception:
+                pass
 
     def _finalize(self):
+        """Rename completed file to include end timestamp and update database"""
+        if not self.start_time_dt or not self.current_filepath:
+            return None, 0
+
         end_time_dt = datetime.now()
         end_str = end_time_dt.strftime("%H-%M")
         start_str = self.start_time_dt.strftime("%Y-%m-%d_%H-%M-%S")
@@ -89,10 +71,75 @@ class ScreenRecorder:
         new_filename = f"{start_str}_{end_str}.mp4"
         new_filepath = str(STORAGE_DIR / new_filename)
         
-        if Path(self.current_filepath).exists():
-            Path(self.current_filepath).rename(new_filepath)
+        curr_path = Path(self.current_filepath)
+        if curr_path.exists():
+            # If the recording is very short (< 1s) and 0 bytes, remove it
+            if curr_path.stat().st_size == 0 and duration < 2:
+                try:
+                    curr_path.unlink()
+                except Exception:
+                    pass
+                return None, 0
+            try:
+                curr_path.rename(new_filepath)
+            except Exception:
+                new_filepath = self.current_filepath
             
         update_recording(self.current_filepath, new_filepath, end_str, duration)
         
+        ret_path = new_filepath
         self.process = None
-        return new_filepath, duration
+        self.current_filepath = None
+        return ret_path, duration
+
+
+class ContinuousRecorder:
+    """Manages continuous circular loop recording (dashcam mode / systemd service)"""
+    def __init__(self):
+        self.running = True
+        self.current_recorder = None
+
+    def run(self):
+        ensure_dirs()
+
+        def handle_shutdown(signum, frame):
+            self.running = False
+            if self.current_recorder:
+                self.current_recorder.stop()
+
+        # Catch termination signals for graceful MP4 closing
+        signal.signal(signal.SIGTERM, handle_shutdown)
+        signal.signal(signal.SIGINT, handle_shutdown)
+        if hasattr(signal, "SIGHUP"):
+            signal.signal(signal.SIGHUP, handle_shutdown)
+
+        while self.running:
+            self.current_recorder = ScreenRecorder()
+            filepath = self.current_recorder.start()
+            if not filepath:
+                print("Failed to start recorder process. Retrying in 5 seconds...")
+                time.sleep(5)
+                continue
+
+            config = load_config()
+            timeout = config.get("max_duration_sec", 1800)
+
+            # Wait for segment duration or early shutdown signal
+            try:
+                self.current_recorder.process.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                # Segment full (e.g. 30 mins) -> gracefully stop and start next chunk
+                self.current_recorder.stop()
+            except (KeyboardInterrupt, Exception):
+                self.running = False
+                self.current_recorder.stop()
+
+            # Finalize the finished segment
+            self.current_recorder._finalize()
+            self.current_recorder = None
+
+            if not self.running:
+                break
+
+            # Brief pause before starting the next segment
+            time.sleep(1)

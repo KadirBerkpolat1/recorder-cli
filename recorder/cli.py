@@ -2,10 +2,16 @@ import argparse
 import sys
 import subprocess
 import time
-from .config import ensure_dirs, load_config, save_config, STORAGE_DIR
-from .recorder import ScreenRecorder
+import shutil
+from pathlib import Path
+from .config import ensure_dirs, load_config, save_config, STORAGE_DIR, CONFIG_DIR
+from .recorder import ScreenRecorder, ContinuousRecorder
 from .storage import list_recordings, delete_recording, clean_all
 from . import __version__
+
+SERVICE_NAME = "recorder.service"
+USER_SYSTEMD_DIR = Path.home() / ".config" / "systemd" / "user"
+USER_SERVICE_PATH = USER_SYSTEMD_DIR / SERVICE_NAME
 
 def is_recording_active():
     try:
@@ -14,34 +20,127 @@ def is_recording_active():
     except subprocess.CalledProcessError:
         return False
 
+def is_service_active():
+    try:
+        res = subprocess.run(["systemctl", "--user", "is-active", "--quiet", SERVICE_NAME], check=False)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def is_service_enabled():
+    try:
+        res = subprocess.run(["systemctl", "--user", "is-enabled", "--quiet", SERVICE_NAME], check=False)
+        return res.returncode == 0
+    except Exception:
+        return False
+
+def install_systemd_service():
+    """Install or update the systemd user service unit"""
+    USER_SYSTEMD_DIR.mkdir(parents=True, exist_ok=True)
+    recorder_bin = shutil.which("recorder") or str(Path.home() / ".local" / "bin" / "recorder")
+    
+    unit_content = f"""[Unit]
+Description=Recorder CLI - Continuous Circular Screen & Audio Recorder
+Documentation=https://github.com/KadirBerkpolat1/recorder-cli
+After=graphical-session.target pipewire.service
+PartOf=graphical-session.target
+
+[Service]
+Type=simple
+ExecStart={recorder_bin} daemon
+Restart=on-failure
+RestartSec=3
+KillSignal=SIGTERM
+TimeoutStopSec=15
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=graphical-session.target default.target
+"""
+    with open(USER_SERVICE_PATH, "w", encoding="utf-8") as f:
+        f.write(unit_content)
+    
+    subprocess.run(["systemctl", "--user", "daemon-reload"], check=False)
+
 def cmd_daemon(args=None):
+    """Runs continuous circular recording loop (ideal for systemd)"""
     ensure_dirs()
-    recorder = ScreenRecorder()
-    filepath = recorder.start()
-    if not filepath:
-        sys.exit(1)
-    recorder.wait_and_stop()
+    continuous = ContinuousRecorder()
+    continuous.run()
 
 def cmd_record(args=None):
     ensure_dirs()
-    if is_recording_active():
+    if is_recording_active() or is_service_active():
         print("Recording is already running!")
         return
 
-    print("Starting recording in the background...")
+    # If systemd service is installed, prefer starting via systemd
+    if USER_SERVICE_PATH.exists():
+        print("Starting continuous recording via systemd service...")
+        subprocess.run(["systemctl", "--user", "start", SERVICE_NAME], check=False)
+        time.sleep(0.5)
+        if is_recording_active():
+            print("✓ Recording started successfully.")
+            return
+
+    print("Starting continuous recording in background daemon...")
     subprocess.Popen(
         ["recorder", "daemon"],
         stdout=subprocess.DEVNULL,
         stderr=subprocess.DEVNULL,
         start_new_session=True
     )
+    time.sleep(0.5)
+    print("✓ Recording started.")
 
 def cmd_stop(args=None):
-    try:
-        subprocess.run(["pkill", "-2", "-f", "gpu-screen-recorder"], check=True)
-        print("Stop signal sent to recorder.")
-    except subprocess.CalledProcessError:
+    stopped_anything = False
+    
+    # 1. Stop systemd service if active
+    if is_service_active():
+        print("Stopping systemd recording service (saving current video)...")
+        subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], check=False)
+        stopped_anything = True
+
+    # 2. If standalone daemon/gpu-screen-recorder is running, send SIGINT for graceful finalization
+    if is_recording_active():
+        try:
+            subprocess.run(["pkill", "-2", "-f", "gpu-screen-recorder"], check=True)
+            stopped_anything = True
+        except subprocess.CalledProcessError:
+            pass
+
+    if stopped_anything:
+        print("✓ Recording stopped and current video saved cleanly.")
+    else:
         print("No active recording found.")
+
+def cmd_service(args):
+    action = args.action.lower()
+    install_systemd_service()
+
+    if action == "enable":
+        subprocess.run(["systemctl", "--user", "enable", "--now", SERVICE_NAME], check=False)
+        print("✓ Systemd servisi etkinleştirildi ve başlatıldı (Her oturum açılışında sürekli kayıt alacak).")
+    elif action == "disable":
+        subprocess.run(["systemctl", "--user", "disable", "--now", SERVICE_NAME], check=False)
+        print("✓ Systemd servisi devre dışı bırakıldı ve durduruldu.")
+    elif action == "start":
+        subprocess.run(["systemctl", "--user", "start", SERVICE_NAME], check=False)
+        print("✓ Systemd servisi başlatıldı.")
+    elif action == "stop":
+        subprocess.run(["systemctl", "--user", "stop", SERVICE_NAME], check=False)
+        print("✓ Systemd servisi durduruldu (O ana kadarki kayıt kaydedildi).")
+    elif action == "status":
+        active = is_service_active()
+        enabled = is_service_enabled()
+        rec_active = is_recording_active()
+        print(f"Service Active   : {'🟢 YES' if active else '🔴 NO'}")
+        print(f"Auto-start (Boot): {'🟢 ENABLED' if enabled else '⚪ DISABLED'}")
+        print(f"Screen Recording : {'🟢 RECORDING' if rec_active else '🔴 IDLE'}")
+    elif action == "install":
+        print("✓ Systemd user unit installed and daemon reloaded.")
 
 def cmd_list(args=None):
     recordings = list_recordings()
@@ -83,9 +182,9 @@ def interactive_settings():
         print('\033c', end='')  # Clear screen
         config = load_config()
         print("=== Settings ===")
-        print(f"1. Max Duration: {config.get('max_duration_sec', 1800) // 60} minutes")
-        print(f"2. Max Recordings: {config.get('max_recordings', 5)}")
-        print(f"3. Record Microphone: {'Yes' if config.get('record_mic', True) else 'No'}")
+        print(f"1. Segment Duration  : {config.get('max_duration_sec', 1800) // 60} minutes")
+        print(f"2. Max Saved Videos  : {config.get('max_recordings', 5)} files")
+        print(f"3. Record Microphone : {'Yes' if config.get('record_mic', True) else 'No'}")
         print("4. Back")
         
         try:
@@ -95,7 +194,7 @@ def interactive_settings():
             
         if choice == '1':
             try:
-                mins = input("Enter new max duration in minutes: ")
+                mins = input("Enter new segment duration in minutes (e.g. 30): ")
             except KeyboardInterrupt:
                 continue
             if mins.isdigit():
@@ -103,7 +202,7 @@ def interactive_settings():
                 save_config(config)
         elif choice == '2':
             try:
-                recs = input("Enter new max recordings limit: ")
+                recs = input("Enter max saved videos limit (circular buffer): ")
             except KeyboardInterrupt:
                 continue
             if recs.isdigit():
@@ -160,15 +259,28 @@ def interactive_videos():
 def interactive_menu():
     while True:
         print('\033c', end='')  # Clear screen
-        is_active = is_recording_active()
-        status = "🟢 RECORDING" if is_active else "🔴 Not Recording"
+        is_rec = is_recording_active()
+        is_svc = is_service_active()
+        is_en = is_service_enabled()
         
-        print("=== Recorder CLI ===")
-        print(f"Status: {status}")
-        print("1. Stop Recording" if is_active else "1. Start Recording")
-        print("2. Manage Videos")
-        print("3. Settings")
-        print("4. Exit")
+        if is_svc:
+            status = "🟢 RECORDING (Systemd Service Active)"
+        elif is_rec:
+            status = "🟢 RECORDING (Standalone Daemon Active)"
+        else:
+            status = "🔴 Not Recording"
+            
+        svc_auto = "🟢 Enabled (Autostart on Login)" if is_en else "⚪ Disabled"
+
+        print("=== 🎥 Recorder CLI ===")
+        print(f"Recording Status: {status}")
+        print(f"Background Service: {svc_auto}")
+        print("-" * 40)
+        print("1. Stop Recording" if (is_rec or is_svc) else "1. Start Recording")
+        print("2. Toggle Systemd Auto-Start Service (Enable/Disable)")
+        print("3. Manage Videos")
+        print("4. Settings")
+        print("5. Exit")
         
         try:
             choice = input("\nSelect an option: ")
@@ -177,17 +289,23 @@ def interactive_menu():
             break
             
         if choice == '1':
-            if is_active:
+            if is_rec or is_svc:
                 cmd_stop()
-                time.sleep(0.5)  # Wait for process to stop
+                time.sleep(0.5)
             else:
                 cmd_record()
-                time.sleep(0.5)  # Wait for process to start
+                time.sleep(0.5)
         elif choice == '2':
-            interactive_videos()
+            if is_en:
+                cmd_service(argparse.Namespace(action="disable"))
+            else:
+                cmd_service(argparse.Namespace(action="enable"))
+            time.sleep(1)
         elif choice == '3':
-            interactive_settings()
+            interactive_videos()
         elif choice == '4':
+            interactive_settings()
+        elif choice == '5':
             print("Goodbye!")
             break
 
@@ -196,17 +314,21 @@ def main():
         interactive_menu()
         return
 
-    parser = argparse.ArgumentParser(description="Screen recording CLI tool")
+    parser = argparse.ArgumentParser(description="Screen & audio circular recording tool")
     parser.add_argument("-v", "--version", action="version", version=f"recorder-cli {__version__}")
     
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
     subparsers.required = True
 
-    parser_record = subparsers.add_parser("record", help="Start recording")
+    parser_record = subparsers.add_parser("record", help="Start continuous recording")
     parser_record.set_defaults(func=cmd_record)
 
-    parser_stop = subparsers.add_parser("stop", help="Stop current recording")
+    parser_stop = subparsers.add_parser("stop", help="Stop current recording and save video")
     parser_stop.set_defaults(func=cmd_stop)
+
+    parser_service = subparsers.add_parser("service", help="Manage systemd user service (enable, disable, start, stop, status)")
+    parser_service.add_argument("action", choices=["enable", "disable", "start", "stop", "status", "install"], help="Service action")
+    parser_service.set_defaults(func=cmd_service)
 
     parser_list = subparsers.add_parser("list", help="List recordings")
     parser_list.set_defaults(func=cmd_list)
@@ -218,7 +340,7 @@ def main():
     parser_clean = subparsers.add_parser("clean", help="Delete all recordings")
     parser_clean.set_defaults(func=cmd_clean)
 
-    parser_daemon = subparsers.add_parser("daemon")
+    parser_daemon = subparsers.add_parser("daemon", help="Run recording loop in foreground")
     parser_daemon.set_defaults(func=cmd_daemon)
 
     args = parser.parse_args()

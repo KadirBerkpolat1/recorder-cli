@@ -11,6 +11,7 @@ from .config import (
     load_config,
     send_notification,
     bootstrap_environment,
+    resolve_resolution,
 )
 from .storage import add_recording, update_recording, sync_recordings
 
@@ -38,7 +39,9 @@ class ScreenRecorder:
         fps = str(config.get("fps", 60))
         codec = config.get("codec", "hevc")
         quality = config.get("quality", "very_high")
-
+        res_setting = config.get("resolution", "native")
+        resolved_res = resolve_resolution(res_setting)
+        res_args = ["-s", resolved_res] if resolved_res else []
         # Audio routing
         audio_args = []
         audio_mode = config.get("audio_mode")
@@ -63,7 +66,7 @@ class ScreenRecorder:
             "-c", "mp4",
             "-k", codec,
             "-q", quality,
-        ] + audio_args + ["-o", self.current_filepath]
+        ] + res_args + audio_args + ["-o", self.current_filepath]
 
         try:
             self.process = subprocess.Popen(
@@ -103,7 +106,8 @@ class ScreenRecorder:
 
         # Successfully started and running
         add_recording(self.current_filepath, start_str)
-        send_notification("Recording Started", f"Capturing {monitor} @ {fps}fps ({codec.upper()})")
+        disp_res = resolved_res if resolved_res else "Native"
+        send_notification("Recording Started", f"Capturing {monitor} ({disp_res}) @ {fps}fps ({codec.upper()})")
         return self.current_filepath
 
     def stop(self):

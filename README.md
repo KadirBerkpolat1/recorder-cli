@@ -35,16 +35,21 @@ sudo pacman -S --needed gpu-screen-recorder mpv libnotify
 
 ## 🚀 Kurulum
 
-Projeyi klonlayıp kurulum betiğini çalıştırmanız yeterlidir (`uv` varsa otomatik algılar ve 1 saniyede kurar):
+### Seçenek 1: Hızlı Otomatik Kurulum (Önerilen)
+Tüm sistem bağımlılıklarını (`gpu-screen-recorder`, `mpv`, `libnotify`) otomatik kurar, depoyu çeker ve yapılandırır:
 
+```bash
+curl -sSL https://raw.githubusercontent.com/KadirBerkpolat1/recorder-cli/main/setup.sh | bash
+```
+
+### Seçenek 2: Manuel Klonlama
 ```bash
 git clone https://github.com/KadirBerkpolat1/recorder-cli.git
 cd recorder-cli
 ./install.sh
 ```
 
-Kurulum sonrası `recorder` komutu doğrudan `~/.local/bin/recorder` olarak terminalinizde kullanılabilir olur.
-
+Kurulum betiği `uv` yüklüyse otomatik algılayıp saniyeler içinde sanal ortamı kurar, eksik sistem paketlerini (`mpv` vb.) tamamlar, systemd servisini kaydeder ve `recorder` komutunu `~/.local/bin/recorder` olarak kullanımınıza sunar.
 ---
 
 ## 💻 Komut Referansı (CLI)
@@ -117,3 +122,21 @@ Videolar `~/Record` dizinine şu formatta yazılır:
 YYYY-MM-DD_HH-MM-SS_HH-MM.mp4
 Örnek: 2026-09-19_13-40-46_13-40.mp4
 ```
+
+---
+
+## 🗑️ Kaldırma (Uninstall)
+
+Uygulamayı, arka plan servisini ve binary kısayollarını sistemden tamamen temizlemek için proje dizinindeki kaldırma betiğini çalıştırmanız yeterlidir:
+
+```bash
+cd recorder-cli
+./uninstall.sh
+```
+
+`uninstall.sh` betiği:
+1. Çalışan systemd servisini durdurur ve devre dışı bırakır (`systemctl --user stop/disable recorder.service`).
+2. Varsa arka planda kalan kayıt işlemlerini sonlandırır.
+3. Systemd servis dosyasını ve hedef bağlantılarını temizler.
+4. `~/.local/bin/recorder` kısayolunu ve `~/.local/share/recorder-cli` dosyalarını siler.
+5. İsteğe bağlı olarak yapılandırma (`~/.config/recorder-cli`) ve kaydedilen videoları (`~/Record`) silmek isteyip istemediğinizi sorar.

@@ -70,22 +70,39 @@ echo "========================================"
 echo "Installation successful!"
 echo "The command 'recorder' is now available."
 
-if [[ ":$PATH:" != *":$BIN_DIR:"* ]]; then
-    echo ""
-    echo "WARNING: $BIN_DIR is not in your PATH."
-    echo "Attempting to add it to ~/.bashrc and ~/.zshrc..."
-    
-    for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc"; do
-        if [ -f "$shell_rc" ]; then
-            if ! grep -q "export PATH=.*$BIN_DIR" "$shell_rc"; then
-                echo "export PATH=\"\$PATH:$BIN_DIR\"" >> "$shell_rc"
-                echo "Added to $shell_rc"
-            fi
+echo ""
+echo "Configuring PATH for all shells..."
+
+# 1. Fish shell support (default interactive shell on CachyOS)
+if command_exists fish; then
+    fish -c "fish_add_path -U '$BIN_DIR'" 2>/dev/null || true
+    echo "✓ Added to Fish universal PATH (instantly active)."
+fi
+
+# 2. Bash, Zsh and POSIX shell profiles
+for shell_rc in "$HOME/.bashrc" "$HOME/.zshrc" "$HOME/.profile" "$HOME/.bash_profile"; do
+    if [ -f "$shell_rc" ]; then
+        if ! grep -q "export PATH=.*$BIN_DIR" "$shell_rc"; then
+            echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$shell_rc"
+            echo "✓ Added to $shell_rc"
         fi
-    done
-    
-    echo "Please restart your terminal or run:"
-    echo "  export PATH=\"\$PATH:$BIN_DIR\""
+    fi
+done
+
+# 3. Global symlink to /usr/local/bin (universally in PATH for all shells without terminal restart)
+if [ -w /usr/local/bin ]; then
+    ln -sf "$BIN_DIR/recorder" /usr/local/bin/recorder 2>/dev/null && echo "✓ Created global symlink in /usr/local/bin/recorder"
+elif command_exists sudo; then
+    if [ "$(id -u)" = "0" ]; then
+        ln -sf "$BIN_DIR/recorder" /usr/local/bin/recorder 2>/dev/null || true
+    else
+        sudo ln -sf "$BIN_DIR/recorder" /usr/local/bin/recorder 2>/dev/null && echo "✓ Created global symlink in /usr/local/bin/recorder (via sudo)" || true
+    fi
+fi
+
+if [[ ":$PATH:" != *":$BIN_DIR:"* ]] && [ ! -f /usr/local/bin/recorder ]; then
+    echo ""
+    echo "NOTICE: Please restart your terminal or run: export PATH=\"$BIN_DIR:\$PATH\""
 fi
 
 echo "========================================"

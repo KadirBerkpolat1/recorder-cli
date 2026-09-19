@@ -34,10 +34,19 @@ rm -f "$SYSTEMD_USER_DIR/default.target.wants/$SERVICE_NAME"
 rm -f "$SYSTEMD_USER_DIR/graphical-session.target.wants/$SERVICE_NAME"
 systemctl --user daemon-reload 2>/dev/null || true
 
-# 4. Remove binary symlink
+# 4. Remove binary symlinks
 if [ -L "$BIN_FILE" ] || [ -f "$BIN_FILE" ]; then
     echo "Removing $BIN_FILE..."
     rm -f "$BIN_FILE"
+fi
+
+if [ -L "/usr/local/bin/recorder" ] || [ -f "/usr/local/bin/recorder" ]; then
+    echo "Removing /usr/local/bin/recorder..."
+    if [ -w /usr/local/bin ]; then
+        rm -f "/usr/local/bin/recorder"
+    elif command -v sudo >/dev/null 2>&1; then
+        sudo rm -f "/usr/local/bin/recorder" 2>/dev/null || true
+    fi
 fi
 
 # 5. Remove installation directory (venv and package)

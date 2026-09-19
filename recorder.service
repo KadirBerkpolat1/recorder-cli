@@ -2,8 +2,7 @@
 Description=Recorder CLI - Continuous Circular Screen & Audio Recorder
 Documentation=https://github.com/KadirBerkpolat1/recorder-cli
 After=graphical-session.target pipewire.service
-PartOf=graphical-session.target
-
+BindsTo=graphical-session.target
 [Service]
 Type=simple
 ExecStart=%h/.local/bin/recorder daemon
@@ -15,4 +14,4 @@ StandardOutput=journal
 StandardError=journal
 
 [Install]
-WantedBy=graphical-session.target default.target
+WantedBy=graphical-session.target

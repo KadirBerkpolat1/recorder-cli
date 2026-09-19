@@ -13,7 +13,7 @@ echo "Checking system dependencies..."
 if command_exists pacman; then
     echo "Arch Linux detected. Installing missing dependencies..."
     if [ "$(id -u)" != "0" ]; then SUDO="sudo"; else SUDO=""; fi
-    $SUDO pacman -S --needed --noconfirm git python mpv
+    $SUDO pacman -S --needed --noconfirm git python mpv libnotify
     if ! command_exists gpu-screen-recorder; then
         $SUDO pacman -S --needed --noconfirm gpu-screen-recorder || echo "WARNING: gpu-screen-recorder could not be installed automatically."
     fi
@@ -21,15 +21,15 @@ elif command_exists apt; then
     echo "Debian/Ubuntu detected. Installing missing dependencies..."
     if [ "$(id -u)" != "0" ]; then SUDO="sudo"; else SUDO=""; fi
     $SUDO apt update
-    $SUDO apt install -y git python3 python3-venv mpv
+    $SUDO apt install -y git python3 python3-venv mpv libnotify-bin
 elif command_exists dnf; then
     echo "Fedora detected. Installing missing dependencies..."
     if [ "$(id -u)" != "0" ]; then SUDO="sudo"; else SUDO=""; fi
-    $SUDO dnf install -y git python3 mpv
+    $SUDO dnf install -y git python3 mpv libnotify
 elif command_exists zypper; then
     echo "openSUSE detected. Installing missing dependencies..."
     if [ "$(id -u)" != "0" ]; then SUDO="sudo"; else SUDO=""; fi
-    $SUDO zypper install -y git python3 mpv
+    $SUDO zypper install -y git python3 mpv libnotify
 else
     echo "Unsupported package manager. Please ensure git, python, and mpv are installed manually."
 fi

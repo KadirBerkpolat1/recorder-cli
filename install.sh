@@ -19,12 +19,18 @@ echo "Setting up Python virtual environment..."
 cd "$INSTALL_DIR"
 # Remove any copied venv from source directory just in case
 rm -rf venv
-python3 -m venv venv
-source venv/bin/activate
 
-echo "Installing package..."
-pip install -e .
-
+if command -v uv >/dev/null 2>&1; then
+    echo "Using uv for fast virtual environment & dependency management..."
+    uv venv venv
+    source venv/bin/activate
+    uv pip install -e .
+else
+    echo "uv not found, falling back to python3 venv and pip..."
+    python3 -m venv venv
+    source venv/bin/activate
+    pip install -e .
+fi
 echo "Creating 'recorder' command in $BIN_DIR..."
 ln -sf "$INSTALL_DIR/venv/bin/recorder" "$BIN_DIR/recorder"
 
